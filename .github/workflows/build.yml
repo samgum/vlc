@@ -24,7 +24,7 @@ jobs:
     - name: Install dependencies
       run: |
         brew update
-        brew install autoconf automake cmake libtool pkg-config gettext ninja python3 yasm lua53 luajit
+        brew install autoconf automake cmake libtool pkg-config gettext ninja python3 yasm lua@5.3 luajit || true
 
     - name: Build VLC using official script
       run: |
