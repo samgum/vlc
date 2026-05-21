@@ -1,0 +1,180 @@
+name: VLC Build
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+env:
+  GIT_SUBMODULE_FLAGS: --recurse-submodules
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    timeout-minutes: 180
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install dependencies
+      run: |
+        brew update
+        brew install autoconf automake cmake libtool pkg-config \
+                     gettext ninja python3 yasm \
+                     jpeg libpng libtiff gnome-icon-theme \
+                     lua53 luajit mad flac id3tag \
+                     libvorbis libogg libtheora libshout \
+                     speex speexdns taglib libmodplug \
+                     libxml2 libcddb libdca liba52 \
+                     libass libbluray libcddb libdvdcss \
+                     libdvdnav libdvdread ffmpeg opus \
+                     mbedtls libsamplerate jack 2>&1 | tail -20
+
+    - name: Bootstrap
+      run: |
+        ./bootstrap
+      continue-on-error: true
+
+    - name: Configure
+      run: |
+        mkdir -p build
+        cd build
+        ../configure --enable-debug --disable-nls \
+          --disable-lua --disable-mad --disable-a52 \
+          --disable-libgcrypt --disable-gnutls \
+          --disable-qt 2>&1 | tail -50
+
+    - name: Build
+      run: |
+        cd build
+        make -j$(sysctl -n hw.ncpu) 2>&1 | tail -50
+
+    - name: Show build info
+      if: always()
+      run: |
+        ls -lh build/bin/vlc 2>/dev/null || echo "Build failed"
+        file build/bin/vlc 2>/dev/null || echo "Binary not found"
+
+    - name: Upload VLC binary
+      if: success()
+      uses: actions/upload-artifact@v4
+      with:
+        name: vlc-macos-${{ github.sha }}
+        path: build/bin/vlc
+        retention-days: 30
+
+  build-ubuntu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          autoconf automake build-essential cmake \
+          libtool pkg-config yasm gettext \
+          ninja-build python3 \
+          liblua5.2-dev liblua5.2-dev \
+          libmad0-dev libavcodec-dev \
+          libavformat-dev libavutil-dev \
+          libswscale-dev libpostproc-dev \
+          libavresample-dev libmpeg2-4-dev \
+          libvorbis-dev libogg-dev libtheora-dev \
+          libspeex-dev libspeexdsp-dev \
+          libflac-dev libflac++-dev \
+          libxml2-dev libxslt1-dev \
+          libass-dev libbluray-dev \
+          libdvdread-dev libdvdnav-dev \
+          libopus-dev libssh2-dev \
+          libmbedtls-dev libsamplerate0-dev \
+          libjack-jackd2-dev libpulse-dev \
+          libgl1-mesa-dev libegl1-mesa-dev \
+          2>&1 | tail -20
+
+    - name: Bootstrap
+      run: |
+        ./bootstrap
+      continue-on-error: true
+
+    - name: Configure
+      run: |
+        mkdir -p build
+        cd build
+        ../configure --enable-debug --disable-nls \
+          --disable-lua --disable-qt \
+          --disable-x11 --disable-wayland \
+          2>&1 | tail -50
+
+    - name: Build
+      run: |
+        cd build
+        make -j$(nproc) 2>&1 | tail -50
+
+    - name: Show build info
+      if: always()
+      run: |
+        ls -lh build/bin/vlc 2>/dev/null || echo "Build failed"
+        file build/bin/vlc 2>/dev/null || echo "Binary not found"
+
+    - name: Upload VLC binary
+      if: success()
+      uses: actions/upload-artifact@v4
+      with:
+        name: vlc-ubuntu-${{ github.sha }}
+        path: build/bin/vlc
+        retention-days: 30
+
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 180
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install dependencies
+      run: |
+        choco install -y ninja yasm
+        echo "C:\Program Files\Ninja" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+    - name: Setup MSVC
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Configure with Meson
+      run: |
+        mkdir build
+        cd build
+        meson setup .. -Denable_qt=false -Denable_ncurses=false -Denable_lua=false
+      continue-on-error: true
+
+    - name: Build
+      run: |
+        cd build
+        ninja -j $env:NUMBER_OF_PROCESSORS
+      continue-on-error: true
+
+    - name: Show build info
+      if: always()
+      run: |
+        ls build/ 2>/dev/null || echo "Build directory not found"
+
+    - name: Upload VLC binary
+      if: success()
+      uses: actions/upload-artifact@v4
+      with:
+        name: vlc-windows-${{ github.sha }}
+        path: build/vlc.exe
+        retention-days: 30
