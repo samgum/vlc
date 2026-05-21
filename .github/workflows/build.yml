@@ -74,14 +74,24 @@ jobs:
       if: always()
       run: |
         echo "=== Looking for VLC binary ==="
-        find . -name "vlc" -type f -executable 2>/dev/null | head -10
+        find . -name "vlc" -type f 2>/dev/null | head -20
+        echo ""
+        echo "=== Check common locations ==="
+        ls -la src/vlc 2>/dev/null || echo "src/vlc not found"
+        ls -la bin/vlc 2>/dev/null || echo "bin/vlc not found"
+        echo ""
+        echo "=== Build directory contents ==="
+        ls -la src/ | head -20
 
     - name: Upload VLC binary
       if: success()
       uses: actions/upload-artifact@v4
       with:
         name: vlc-ubuntu-${{ github.sha }}
-        path: src/vlc
+        path: |
+          src/vlc
+          bin/vlc
+          vlc
         retention-days: 30
         if-no-files-found: warn
 
