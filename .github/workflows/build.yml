@@ -35,6 +35,18 @@ jobs:
                      libdvdnav libdvdread ffmpeg opus \
                      mbedtls libsamplerate jack 2>&1 | tail -20
 
+    - name: Verify autotools installation
+      run: |
+        echo "Checking for autoreconf..."
+        which autoreconf
+        autoreconf --version
+        echo "Checking for autoconf..."
+        which autoconf
+        autoconf --version
+        echo "Checking for automake..."
+        which automake
+        automake --version
+
     - name: Bootstrap
       run: |
         ./bootstrap
@@ -146,30 +158,47 @@ jobs:
         submodules: recursive
 
     - name: Install dependencies
+      shell: pwsh
       run: |
-        choco install -y ninja yasm
-        echo "C:\Program Files\Ninja" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        choco install -y ninja yasm meson python
+        Write-Output "C:\Program Files\Ninja" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        Write-Output "C:\Program Files\Meson" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
     - name: Setup MSVC
       uses: microsoft/setup-msbuild@v2
 
-    - name: Configure with Meson
+    - name: Verify tools
+      shell: pwsh
       run: |
-        mkdir build
-        cd build
+        Write-Output "Checking meson..."
+        meson --version
+        Write-Output "Checking ninja..."
+        ninja --version
+
+    - name: Configure with Meson
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Path build
+        Set-Location build
         meson setup .. -Denable_qt=false -Denable_ncurses=false -Denable_lua=false
       continue-on-error: true
 
     - name: Build
+      shell: pwsh
       run: |
-        cd build
+        Set-Location build
         ninja -j $env:NUMBER_OF_PROCESSORS
       continue-on-error: true
 
     - name: Show build info
       if: always()
+      shell: pwsh
       run: |
-        ls build/ 2>/dev/null || echo "Build directory not found"
+        if (Test-Path build) {
+          Get-ChildItem build
+        } else {
+          Write-Output "Build directory not found"
+        }
 
     - name: Upload VLC binary
       if: success()
@@ -178,3 +207,4 @@ jobs:
         name: vlc-windows-${{ github.sha }}
         path: build/vlc.exe
         retention-days: 30
+        if-no-files-found: ignore
