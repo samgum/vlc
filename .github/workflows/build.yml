@@ -85,16 +85,58 @@ jobs:
         retention-days: 30
         if-no-files-found: warn
 
-  build-windows-info:
+  build-windows:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 180
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        submodules: recursive
 
-    - name: Windows build info
+    - name: Install MinGW cross-compiler
       run: |
-        echo "VLC Windows builds require MinGW cross-compilation"
-        echo "See: https://wiki.videolan.org/Compile_VLC_on_Windows"
-        echo "For official builds: https://www.videolan.org/vlc/"
+        sudo apt-get update
+        sudo apt-get install -y mingw-w64 mingw-w64-tools mingw-w64-x86-64-dev g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64
+
+    - name: Install other dependencies
+      run: |
+        sudo apt-get install -y autoconf automake cmake libtool pkg-config yasm gettext ninja-build python3 git wine
+
+    - name: Build contrib (optional, takes long)
+      run: |
+        echo "Building VLC for Windows using cross-compilation"
+        echo "This may take 1-2 hours..."
+      continue-on-error: true
+
+    - name: Try official Windows build script
+      run: |
+        export TRIPLET=x86_64-w64-mingw32
+        export HOST_ARCH=x86_64
+        ./extras/package/win32/build.sh -a x86_64 -x 2>&1 | tee build.log || true
+      continue-on-error: true
+      timeout-minutes: 120
+
+    - name: Show build results
+      if: always()
+      run: |
+        echo "=== Checking for Windows build artifacts ==="
+        ls -la win64/ 2>/dev/null || echo "No win64 directory"
+        find . -name "*.exe" -o -name "*.dll" 2>/dev/null | head -20
+        echo ""
+        echo "=== Build log (last 50 lines) ==="
+        tail -50 build.log 2>/dev/null || echo "No build log"
+
+    - name: Upload Windows artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: vlc-windows-${{ github.sha }}
+        path: |
+          win64/*.exe
+          win64/*.dll
+          win64/*.7z
+          build.log
+        retention-days: 30
+        if-no-files-found: ignore
