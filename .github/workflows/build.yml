@@ -61,14 +61,28 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y autoconf automake build-essential cmake libtool pkg-config yasm gettext ninja-build python3 liblua5.2-dev libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libvorbis-dev libogg-dev libflac-dev libxml2-dev libass-dev
+        sudo apt-get install -y autoconf automake build-essential cmake libtool pkg-config yasm gettext ninja-build python3 lua5.2 liblua5.2-dev libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libvorbis-dev libogg-dev libflac-dev libxml2-dev libass-dev
 
-    - name: Build VLC
+    - name: Bootstrap
       run: |
-        ./bootstrap
-        ./configure --disable-nls --disable-qt --disable-skins2
-        make -j$(nproc)
-      continue-on-error: true
+        echo "=== Running bootstrap ==="
+        ./bootstrap 2>&1 | tee bootstrap.log
+        echo "=== Bootstrap exit code: $? ==="
+
+    - name: Configure
+      run: |
+        echo "=== Running configure ==="
+        ./configure --disable-nls --disable-qt --disable-skins2 2>&1 | tee configure.log
+        echo "=== Configure exit code: $? ==="
+        echo ""
+        echo "=== Checking if Makefile was created ==="
+        ls -la Makefile 2>/dev/null || echo "Makefile not found!"
+
+    - name: Build
+      run: |
+        echo "=== Running make ==="
+        make -j$(nproc) 2>&1 | tee build.log
+        echo "=== Make exit code: $? ==="
 
     - name: Show build info
       if: always()
@@ -76,24 +90,52 @@ jobs:
         echo "=== Looking for VLC binary ==="
         find . -name "vlc" -type f 2>/dev/null | head -20
         echo ""
-        echo "=== Check common locations ==="
-        ls -la src/vlc 2>/dev/null || echo "src/vlc not found"
-        ls -la bin/vlc 2>/dev/null || echo "bin/vlc not found"
+        echo "=== Check src directory ==="
+        ls -la src/ | grep -E "vlc$|Makefile" || echo "No vlc or Makefile in src/"
         echo ""
-        echo "=== Build directory contents ==="
-        ls -la src/ | head -20
+        echo "=== Build logs summary ==="
+        echo "Bootstrap log last 10 lines:"
+        tail -10 bootstrap.log 2>/dev/null || echo "No bootstrap log"
+        echo ""
+        echo "Configure errors:"
+        grep -i "error" configure.log 2>/dev/null | head -5 || echo "No errors in configure"
+        echo ""
+        echo "Build errors:"
+        grep -i "error" build.log 2>/dev/null | head -5 || echo "No errors in build"
+
+    - name: Find VLC binary
+      id: find-vlc
+      if: always()
+      run: |
+        echo "=== Searching for VLC executable ==="
+        VLC_PATH=$(find . -name "vlc" -type f -executable 2>/dev/null | head -1)
+        if [ -n "$VLC_PATH" ]; then
+          echo "Found VLC at: $VLC_PATH"
+          echo "vlc_path=$VLC_PATH" >> $GITHUB_OUTPUT
+        else
+          echo "VLC binary not found!"
+          echo "vlc_path=" >> $GITHUB_OUTPUT
+        fi
 
     - name: Upload VLC binary
-      if: success()
+      if: success() && steps.find-vlc.outputs.vlc_path != ''
       uses: actions/upload-artifact@v4
       with:
         name: vlc-ubuntu-${{ github.sha }}
-        path: |
-          src/vlc
-          bin/vlc
-          vlc
+        path: ${{ steps.find-vlc.outputs.vlc_path }}
         retention-days: 30
-        if-no-files-found: warn
+
+    - name: Upload build logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ubuntu-build-logs-${{ github.sha }}
+        path: |
+          bootstrap.log
+          configure.log
+          build.log
+        retention-days: 7
+        if-no-files-found: ignore
 
   build-windows:
     runs-on: ubuntu-latest
@@ -114,17 +156,11 @@ jobs:
       run: |
         sudo apt-get install -y autoconf automake cmake libtool pkg-config yasm gettext ninja-build python3 git wine
 
-    - name: Build contrib (optional, takes long)
-      run: |
-        echo "Building VLC for Windows using cross-compilation"
-        echo "This may take 1-2 hours..."
-      continue-on-error: true
-
     - name: Try official Windows build script
       run: |
         export TRIPLET=x86_64-w64-mingw32
         export HOST_ARCH=x86_64
-        ./extras/package/win32/build.sh -a x86_64 -x 2>&1 | tee build.log || true
+        ./extras/package/win32/build.sh -a x86_64 -x 2>&1 | tee windows-build.log || true
       continue-on-error: true
       timeout-minutes: 120
 
@@ -136,7 +172,7 @@ jobs:
         find . -name "*.exe" -o -name "*.dll" 2>/dev/null | head -20
         echo ""
         echo "=== Build log (last 50 lines) ==="
-        tail -50 build.log 2>/dev/null || echo "No build log"
+        tail -50 windows-build.log 2>/dev/null || echo "No build log"
 
     - name: Upload Windows artifacts
       if: always()
@@ -147,6 +183,6 @@ jobs:
           win64/*.exe
           win64/*.dll
           win64/*.7z
-          build.log
+          windows-build.log
         retention-days: 30
         if-no-files-found: ignore
