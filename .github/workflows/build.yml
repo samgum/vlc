@@ -51,6 +51,9 @@ jobs:
   build-ubuntu:
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    container:
+      image: registry.videolan.org/vlc-debian-unstable:20260217105256
+      options: --user root
 
     steps:
     - name: Checkout code
@@ -58,88 +61,36 @@ jobs:
       with:
         submodules: recursive
 
-    - name: Install dependencies
+    - name: Build VLC (official method)
       run: |
-        sudo apt-get update
-        sudo apt-get install -y autoconf automake build-essential cmake libtool pkg-config yasm gettext ninja-build python3 lua5.2 liblua5.2-dev libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libvorbis-dev libogg-dev libflac-dev libxml2-dev libass-dev
-
-    - name: Bootstrap
-      run: |
-        echo "=== Running bootstrap ==="
-        ./bootstrap 2>&1 | tee bootstrap.log
-        echo "=== Bootstrap exit code: $? ==="
-
-    - name: Configure
-      run: |
-        echo "=== Running configure ==="
-        ./configure --disable-nls --disable-qt --disable-skins2 2>&1 | tee configure.log
-        echo "=== Configure exit code: $? ==="
+        export NCPU=$(nproc)
+        echo "Building VLC using official method"
+        echo "Branch: ${GITHUB_REF_NAME}"
         echo ""
-        echo "=== Checking if Makefile was created ==="
-        ls -la Makefile 2>/dev/null || echo "Makefile not found!"
-
-    - name: Build
-      run: |
-        echo "=== Running make ==="
-        make -j$(nproc) 2>&1 | tee build.log
-        echo "=== Make exit code: $? ==="
+        ./bootstrap
+        ./configure
+        make -j$NCPU
 
     - name: Show build info
       if: always()
       run: |
-        echo "=== Looking for VLC binary ==="
-        find . -name "vlc" -type f 2>/dev/null | head -20
-        echo ""
-        echo "=== Check src directory ==="
-        ls -la src/ | grep -E "vlc$|Makefile" || echo "No vlc or Makefile in src/"
-        echo ""
-        echo "=== Build logs summary ==="
-        echo "Bootstrap log last 10 lines:"
-        tail -10 bootstrap.log 2>/dev/null || echo "No bootstrap log"
-        echo ""
-        echo "Configure errors:"
-        grep -i "error" configure.log 2>/dev/null | head -5 || echo "No errors in configure"
-        echo ""
-        echo "Build errors:"
-        grep -i "error" build.log 2>/dev/null | head -5 || echo "No errors in build"
-
-    - name: Find VLC binary
-      id: find-vlc
-      if: always()
-      run: |
-        echo "=== Searching for VLC executable ==="
-        VLC_PATH=$(find . -name "vlc" -type f -executable 2>/dev/null | head -1)
-        if [ -n "$VLC_PATH" ]; then
-          echo "Found VLC at: $VLC_PATH"
-          echo "vlc_path=$VLC_PATH" >> $GITHUB_OUTPUT
-        else
-          echo "VLC binary not found!"
-          echo "vlc_path=" >> $GITHUB_OUTPUT
-        fi
+        echo "=== VLC binary location ==="
+        find . -name "vlc" -type f -executable 2>/dev/null | head -10
 
     - name: Upload VLC binary
-      if: success() && steps.find-vlc.outputs.vlc_path != ''
+      if: success()
       uses: actions/upload-artifact@v4
       with:
         name: vlc-ubuntu-${{ github.sha }}
-        path: ${{ steps.find-vlc.outputs.vlc_path }}
+        path: src/vlc
         retention-days: 30
-
-    - name: Upload build logs
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: ubuntu-build-logs-${{ github.sha }}
-        path: |
-          bootstrap.log
-          configure.log
-          build.log
-        retention-days: 7
-        if-no-files-found: ignore
 
   build-windows:
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    container:
+      image: registry.videolan.org/vlc-debian-win64-posix:20260127163923
+      options: --user root
 
     steps:
     - name: Checkout code
@@ -147,32 +98,20 @@ jobs:
       with:
         submodules: recursive
 
-    - name: Install MinGW cross-compiler
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y mingw-w64 mingw-w64-tools mingw-w64-x86-64-dev g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64
-
-    - name: Install other dependencies
-      run: |
-        sudo apt-get install -y autoconf automake cmake libtool pkg-config yasm gettext ninja-build python3 git wine
-
-    - name: Try official Windows build script
+    - name: Build VLC (official method)
       run: |
         export TRIPLET=x86_64-w64-mingw32
         export HOST_ARCH=x86_64
-        ./extras/package/win32/build.sh -a x86_64 -x 2>&1 | tee windows-build.log || true
+        ./extras/package/win32/build.sh -a x86_64 -x
       continue-on-error: true
       timeout-minutes: 120
 
     - name: Show build results
       if: always()
       run: |
-        echo "=== Checking for Windows build artifacts ==="
+        echo "=== Windows build artifacts ==="
         ls -la win64/ 2>/dev/null || echo "No win64 directory"
         find . -name "*.exe" -o -name "*.dll" 2>/dev/null | head -20
-        echo ""
-        echo "=== Build log (last 50 lines) ==="
-        tail -50 windows-build.log 2>/dev/null || echo "No build log"
 
     - name: Upload Windows artifacts
       if: always()
@@ -183,6 +122,5 @@ jobs:
           win64/*.exe
           win64/*.dll
           win64/*.7z
-          windows-build.log
         retention-days: 30
         if-no-files-found: ignore
