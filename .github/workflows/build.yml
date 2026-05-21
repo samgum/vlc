@@ -61,6 +61,10 @@ jobs:
       with:
         submodules: recursive
 
+    - name: Fix Git ownership issue
+      run: |
+        git config --global --add safe.directory /__w/vlc/vlc
+
     - name: Build VLC (official method)
       run: |
         export NCPU=$(nproc)
